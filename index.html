@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Control de Expedientes - CREDIBAN Final</title>
+    <title>Control de Expedientes - CREDIBAN V18 Cloud</title>
     
     <!-- Librerías Core -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -33,24 +33,14 @@
         /* REPARACIÓN DEL BUG DE PDF Y DISEÑO 4x6 (24 Tickets/Hoja A4) */
         @media print {
             html, body, #root, main { 
-                height: auto !important; 
-                min-height: 0 !important; 
-                overflow: visible !important; 
-                display: block !important; 
-                background: white !important; 
-                margin: 0 !important; 
-                padding: 0 !important;
+                height: auto !important; min-height: 0 !important; overflow: visible !important; 
+                display: block !important; background: white !important; margin: 0 !important; padding: 0 !important;
             }
             .no-print { display: none !important; }
             .print-container { padding-left: 2px !important; padding-top: 2px !important; }
             .print-area { 
-                margin: 0 auto !important; 
-                width: 210mm !important; 
-                border-left: 2px solid black !important;
-                border-top: 2px solid black !important;
-                box-shadow: none !important; 
-                page-break-after: always;
-                box-sizing: border-box !important;
+                margin: 0 auto !important; width: 210mm !important; border-left: 2px solid black !important;
+                border-top: 2px solid black !important; box-shadow: none !important; page-break-after: always; box-sizing: border-box !important;
             }
             .text-red-600 { color: #dc2626 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
             .ticket-cell { page-break-inside: avoid; }
@@ -61,36 +51,29 @@
     <div id="root"></div>
 
     <script type="text/babel">
+        // URL DE TU GOOGLE APPS SCRIPT
+        const API_URL = "https://script.google.com/macros/s/AKfycbwHEPrFeiFPsB0z1SsTeO2KKfXoSVcZsjxLbQ_UjREyTEI28edgnZDLGnTB0Z7PqTRs/exec";
+
         function App() {
             // ==========================================
-            // SISTEMA DE SEGURIDAD
+            // SISTEMA DE SEGURIDAD Y CONEXIÓN CLOUD
             // ==========================================
             const [isAuth, setIsAuth] = React.useState(false);
+            const [isLoading, setIsLoading] = React.useState(false);
+            const [sedeActual, setSedeActual] = React.useState('');
             const [passwordInput, setPasswordInput] = React.useState('');
+            const [loadingMsg, setLoadingMsg] = React.useState('');
             
-            const handleLogin = (e) => {
-                e.preventDefault();
-                if (passwordInput === 'CREDICAJA123') setIsAuth(true);
-                else { alert('❌ Contraseña incorrecta. Acceso denegado.'); setPasswordInput(''); }
-            };
-
             const [isParamAuth, setIsParamAuth] = React.useState(false);
             const [paramPass, setParamPass] = React.useState('');
-            const checkParamAuth = () => {
-                if (paramPass === 'CREDICAJA123') setIsParamAuth(true);
-                else { alert('❌ Contraseña de administrador incorrecta.'); setParamPass(''); }
-            };
 
-            // ==========================================
             // ESTADOS DE LA APLICACIÓN
-            // ==========================================
             const [view, setView] = React.useState('movimientos');
             const [asesores, setAsesores] = React.useState(() => JSON.parse(localStorage.getItem('crediban_lista_asesores')) || []);
-            const [expedientes, setExpedientes] = React.useState(() => JSON.parse(localStorage.getItem('crediban_inventario')) || []);
+            const [expedientes, setExpedientes] = React.useState([]);
             const [ticketsQueue, setTicketsQueue] = React.useState(() => JSON.parse(localStorage.getItem('crediban_tickets_queue')) || []);
 
             React.useEffect(() => { localStorage.setItem('crediban_lista_asesores', JSON.stringify(asesores)); }, [asesores]);
-            React.useEffect(() => { localStorage.setItem('crediban_inventario', JSON.stringify(expedientes)); }, [expedientes]);
             React.useEffect(() => { localStorage.setItem('crediban_tickets_queue', JSON.stringify(ticketsQueue)); }, [ticketsQueue]);
 
             const getFechaHora = () => {
@@ -103,8 +86,79 @@
                 return `${d}/${m}/${y}, ${h}:${min}`;
             };
 
+            // LOGIN CON CONEXIÓN A GOOGLE SHEETS
+            const handleLogin = async (e) => {
+                e.preventDefault();
+                if(!sedeActual) return alert("Por favor, selecciona una sede.");
+                
+                setIsLoading(true);
+                setLoadingMsg('Autenticando y descargando base de datos...');
+                
+                try {
+                    const res = await fetch(API_URL, {
+                        method: 'POST',
+                        body: JSON.stringify({ action: 'getData', sede: sedeActual, password: passwordInput })
+                    });
+                    const data = await res.json();
+                    
+                    if (data.status === 'success') {
+                        setExpedientes(data.data);
+                        setIsAuth(true);
+                    } else {
+                        alert(`❌ ${data.message}`);
+                        setPasswordInput('');
+                    }
+                } catch (err) {
+                    alert('❌ Error de conexión. Verifica tu internet y que la URL sea correcta.');
+                }
+                setIsLoading(false);
+            };
+
+            const checkParamAuth = () => {
+                if (paramPass === passwordInput) setIsParamAuth(true);
+                else { alert('❌ Contraseña de administrador incorrecta (usa la clave de tu sede).'); setParamPass(''); }
+            };
+
+            // FUNCIÓN PARA GUARDAR UN EXPEDIENTE EN LA NUBE
+            const syncExpedienteCloud = async (expToSave) => {
+                setIsLoading(true);
+                setLoadingMsg('Sincronizando en la nube...');
+                try {
+                    const res = await fetch(API_URL, {
+                        method: 'POST',
+                        body: JSON.stringify({ action: 'save', sede: sedeActual, password: passwordInput, data: expToSave })
+                    });
+                    const data = await res.json();
+                    if (data.status !== 'success') {
+                        alert(`❌ Error al guardar en la nube: ${data.message}`);
+                    }
+                } catch (err) {
+                    alert('❌ Error de conexión al guardar el expediente.');
+                }
+                setIsLoading(false);
+            };
+
+            // FUNCIÓN PARA CARGA MASIVA EN LA NUBE
+            const syncBulkCloud = async (listaNuevos) => {
+                setIsLoading(true);
+                setLoadingMsg('Migrando datos a la nube...');
+                try {
+                    const res = await fetch(API_URL, {
+                        method: 'POST',
+                        body: JSON.stringify({ action: 'bulkSave', sede: sedeActual, password: passwordInput, data: listaNuevos })
+                    });
+                    const data = await res.json();
+                    if (data.status !== 'success') {
+                        alert(`❌ Error en carga masiva: ${data.message}`);
+                    }
+                } catch (err) {
+                    alert('❌ Error de conexión en la carga masiva.');
+                }
+                setIsLoading(false);
+            };
+
             // ==========================================
-            // PARÁMETROS Y BORRADO SEGURO
+            // PARÁMETROS 
             // ==========================================
             const [nuevoAsesor, setNuevoAsesor] = React.useState('');
             const agregarAsesor = (e) => {
@@ -117,16 +171,13 @@
             const eliminarAsesor = (asesor) => { if(confirm(`¿Eliminar al asesor ${asesor}?`)) setAsesores(asesores.filter(a => a !== asesor)); };
 
             const borrarTodaLaBase = () => {
-                if (!confirm("⚠️ ALERTA: Estás a punto de ELIMINAR TODO EL INVENTARIO Y EL HISTORIAL del sistema.\n\n¿Estás seguro de querer continuar?")) return;
-                const pass = prompt("🔒 ACCIÓN PROTEGIDA:\nPor favor, ingresa la contraseña de administrador para confirmar:");
-                if (pass === 'CREDICAJA123') { setExpedientes([]); setTicketsQueue([]); alert("✅ Base de datos formateada con éxito. El sistema está limpio."); }
-                else if (pass !== null) alert("❌ Contraseña incorrecta. Operación cancelada.");
+                alert("⚠️ Por seguridad, la eliminación masiva de la base de datos debe hacerse manualmente borrando las filas desde Google Sheets.");
             };
 
             // ==========================================
-            // INVENTARIO Y REGISTRO
+            // INVENTARIO Y REGISTRO (SIN DNI)
             // ==========================================
-            const [formInv, setFormInv] = React.useState({ idExp: '', dni: '', cliente: '', estadoCredito: 'ACTIVO', asesorTitular: '', generarTicket: true });
+            const [formInv, setFormInv] = React.useState({ idExp: '', cliente: '', estadoCredito: 'ACTIVO', asesorTitular: '', generarTicket: true });
             const [editMode, setEditMode] = React.useState(null);
             const [historialVisible, setHistorialVisible] = React.useState(null);
             const csvInputRef = React.useRef(null);
@@ -136,21 +187,25 @@
                 return soloNum ? "001-" + soloNum.padStart(5, '0') : '';
             };
 
-            const registrarExpediente = (e) => {
+            const registrarExpediente = async (e) => {
                 e.preventDefault();
                 if(!formInv.asesorTitular) return alert("Debes seleccionar un Asesor Titular.");
                 if(!formInv.idExp) return alert("Ingresa el N° de Expediente.");
                 
-                const idFinal = formatIdExpediente(formInv.idExp);
+                let idFinal = formatIdExpediente(formInv.idExp);
                 if(!idFinal) return alert("El N° de Expediente debe contener números.");
-                if(expedientes.some(x => x.dni === formInv.dni)) return alert("El DNI ya está registrado.");
-                if(expedientes.some(x => x.id === idFinal)) return alert(`El N° de Expediente ${idFinal} ya existe.`);
+                
+                while(expedientes.some(x => x.id === idFinal)) {
+                    const correccion = prompt(`❌ EXPEDIENTE DUPLICADO.\nEl N° de Expediente ${idFinal} ya se encuentra registrado.\n\nPor favor, ingrese el N° correcto:`);
+                    if (correccion === null || correccion.trim() === '') return;
+                    idFinal = formatIdExpediente(correccion);
+                }
 
                 const nuevo = {
-                    id: idFinal,
-                    dni: formInv.dni,
+                    id: idFinal, 
+                    dni: 'CONFIDENCIAL', // DNI Oculto/Fijo por privacidad
                     cliente: formInv.cliente.toUpperCase(),
-                    estadoCredito: formInv.estadoCredito,
+                    estadoCredito: formInv.estadoCredito, 
                     asesorTitular: formInv.asesorTitular,
                     ubicacionFisica: 'CAJA (ARCHIVO)', 
                     fechaUltimoMov: getFechaHora(),
@@ -158,16 +213,14 @@
                 };
                 
                 setExpedientes([nuevo, ...expedientes]);
+                if (formInv.generarTicket) setTicketsQueue([...ticketsQueue, { id: idFinal, cliente: formInv.cliente.toUpperCase() }]);
+                setFormInv({ idExp: '', cliente: '', estadoCredito: 'ACTIVO', asesorTitular: '', generarTicket: formInv.generarTicket });
                 
-                if (formInv.generarTicket) {
-                    setTicketsQueue([...ticketsQueue, { id: idFinal, cliente: formInv.cliente.toUpperCase() }]);
-                }
-
-                setFormInv({ idExp: '', dni: '', cliente: '', estadoCredito: 'ACTIVO', asesorTitular: '', generarTicket: formInv.generarTicket });
-                alert(`✅ Expediente ${idFinal} registrado en CAJA.`);
+                await syncExpedienteCloud(nuevo);
+                alert(`✅ Expediente ${idFinal} registrado en la nube.`);
             };
 
-            const guardarEdicion = (expActual, nuevoEstado, nuevoAsesor) => {
+            const guardarEdicion = async (expActual, nuevoEstado, nuevoAsesor) => {
                 let cambios = [];
                 if(expActual.estadoCredito !== nuevoEstado) cambios.push(`Estado: ${expActual.estadoCredito} a ${nuevoEstado}`);
                 if(expActual.asesorTitular !== nuevoAsesor) cambios.push(`Titularidad: De ${expActual.asesorTitular} a ${nuevoAsesor}`);
@@ -177,21 +230,16 @@
                 const expEditado = { ...expActual, estadoCredito: nuevoEstado, asesorTitular: nuevoAsesor, historial: historialActualizado };
                 setExpedientes(expedientes.map(e => e.id === expActual.id ? expEditado : e));
                 setEditMode(null);
+                await syncExpedienteCloud(expEditado);
             };
 
             // ==========================================
-            // IMPORTACIÓN Y EXPORTACIÓN CSV (CON HISTORIAL JSON)
+            // IMPORTACIÓN Y EXPORTACIÓN CSV
             // ==========================================
             const exportarCSV = () => {
                 if(expedientes.length === 0) return alert("No hay datos para exportar.");
-                
                 const now = new Date();
-                const d = String(now.getDate()).padStart(2, '0');
-                const m = String(now.getMonth() + 1).padStart(2, '0');
-                const y = now.getFullYear();
-                const h = String(now.getHours()).padStart(2, '0');
-                const min = String(now.getMinutes()).padStart(2, '0');
-                const fileName = `${d}-${m}-${y} ${h}-${min} - R EXPEDIENTES.csv`;
+                const fileName = `${now.getDate()}-${now.getMonth() + 1}-${now.getFullYear()} - R EXPEDIENTES.csv`;
 
                 let csv = "ID_Expediente,DNI,Cliente,Estado,Titular,Ubicacion_Fisica,Fecha_Ultimo_Movimiento,Historial_JSON\n";
                 expedientes.forEach(e => { 
@@ -203,16 +251,12 @@
             };
 
             const parseCSVLine = (line) => {
-                const result = [];
-                let current = ''; let inQuotes = false;
+                const result = []; let current = ''; let inQuotes = false;
                 for (let i = 0; i < line.length; i++) {
                     const char = line[i];
                     if (char === '"') {
-                        if (inQuotes && line[i+1] === '"') {
-                            current += '"'; i++;
-                        } else {
-                            inQuotes = !inQuotes;
-                        }
+                        if (inQuotes && line[i+1] === '"') { current += '"'; i++; } 
+                        else { inQuotes = !inQuotes; }
                     }
                     else if (char === ',' && !inQuotes) { result.push(current.trim()); current = ''; }
                     else current += char;
@@ -221,14 +265,14 @@
                 return result.map(s => s.replace(/^"|"$/g, '').trim());
             };
 
-            const importarCSV = (e) => {
+            const importarCSV = async (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
                 const reader = new FileReader();
-                reader.onload = (evt) => {
+                reader.onload = async (evt) => {
                     const lines = evt.target.result.split('\n');
-                    let count = 0; let errorCount = 0;
-                    let nuevos = [...expedientes]; let nuevosAsesores = [...asesores];
+                    let count = 0; let nuevos = [...expedientes]; let nuevosAsesores = [...asesores];
+                    let listaParaLaNube = [];
 
                     for (let i = 1; i < lines.length; i++) {
                         if (!lines[i].trim()) continue;
@@ -239,37 +283,36 @@
                             let baseNum = rawId.includes('-') ? rawId.split('-')[1] : rawId;
                             let idFormal = formatIdExpediente(baseNum);
 
-                            const dni = cols[1].replace(/\D/g, '');
-                            const cliente = cols[2].toUpperCase();
-                            const estado = cols[3].toUpperCase() || 'ACTIVO';
-                            const asesor = cols[4].toUpperCase();
+                            const dni = cols[1] ? cols[1].replace(/\D/g, '') : 'CONFIDENCIAL';
+                            const cliente = cols[2] ? cols[2].toUpperCase() : '';
+                            const estado = cols[3] ? cols[3].toUpperCase() : 'ACTIVO';
+                            const asesor = cols[4] ? cols[4].toUpperCase() : '';
                             const ubicacionFisica = cols[5] ? cols[5].toUpperCase() : 'CAJA (ARCHIVO)';
                             const fechaUltimoMov = cols[6] ? cols[6] : getFechaHora();
 
                             let historialRescatado = [{ fecha: getFechaHora(), accion: 'MIGRACIÓN / CARGA', detalle: 'Ingresado masivamente a Caja' }];
                             if (cols[7] && cols[7].trim() !== '') {
-                                try {
-                                    historialRescatado = JSON.parse(cols[7]);
-                                } catch(err) {
-                                    console.warn("Historial genérico asignado.");
-                                }
+                                try { historialRescatado = JSON.parse(cols[7]); } catch(err) {}
                             }
 
-                            if(idFormal && dni && !nuevos.some(x => x.id === idFormal || x.dni === dni)) {
-                                nuevos.push({
+                            // Ignoramos duplicidad de DNI porque ahora todo es "CONFIDENCIAL" o "0"
+                            if(idFormal && !nuevos.some(x => x.id === idFormal)) {
+                                const exp = {
                                     id: idFormal, dni: dni, cliente: cliente, estadoCredito: estado, asesorTitular: asesor,
-                                    ubicacionFisica: ubicacionFisica, fechaUltimoMov: fechaUltimoMov,
-                                    historial: historialRescatado
-                                });
+                                    ubicacionFisica: ubicacionFisica, fechaUltimoMov: fechaUltimoMov, historial: historialRescatado
+                                };
+                                nuevos.push(exp);
+                                listaParaLaNube.push(exp);
                                 count++;
                                 if(asesor && !nuevosAsesores.includes(asesor)) nuevosAsesores.push(asesor);
-                            } else {
-                                errorCount++;
                             }
                         }
                     }
                     setExpedientes(nuevos); setAsesores(nuevosAsesores);
-                    alert(`✅ Carga Exitosa: Se migraron/restauraron ${count} expedientes con su historial.\n⚠️ Omitidos (Duplicados): ${errorCount}`);
+                    if(listaParaLaNube.length > 0) {
+                        await syncBulkCloud(listaParaLaNube);
+                        alert(`✅ Carga Exitosa: Se migraron ${count} expedientes a la nube.`);
+                    }
                 };
                 reader.readAsText(file); e.target.value = '';
             };
@@ -289,66 +332,53 @@
                 
                 const matches = expedientes.filter(exp => {
                     const idNorm = String(exp.id).toUpperCase().replace(/^(001-)?0*/, '');
-                    return exp.dni.includes(val) || exp.cliente.includes(val) || idNorm.includes(termNormalized);
+                    return exp.cliente.includes(val) || idNorm.includes(termNormalized);
                 });
                 setSugerencias(matches.slice(0, 6));
             };
 
             const seleccionarExpediente = (exp) => { setExpEncontrado(exp); setMovBusqueda(''); setSugerencias([]); };
 
-            const prestarExpediente = (quienPresta) => {
+            const prestarExpediente = async (quienPresta) => {
                 if(!quienPresta) return alert("Selecciona a quién le prestas el expediente.");
                 const expActualizado = {...expEncontrado, ubicacionFisica: `CON ASESOR: ${quienPresta}`, fechaUltimoMov: getFechaHora()};
                 expActualizado.historial.unshift({ fecha: getFechaHora(), accion: 'PRÉSTAMO', detalle: `Entregado físico a ${quienPresta}` });
                 setExpedientes(expedientes.map(e => e.id === expActualizado.id ? expActualizado : e));
                 setExpEncontrado(null);
+                await syncExpedienteCloud(expActualizado);
                 alert(`✅ Expediente prestado a ${quienPresta}`);
             };
 
-            const devolverCaja = () => {
+            const devolverCaja = async () => {
                 const expActualizado = {...expEncontrado, ubicacionFisica: 'CAJA (ARCHIVO)', fechaUltimoMov: getFechaHora()};
                 expActualizado.historial.unshift({ fecha: getFechaHora(), accion: 'DEVOLUCIÓN', detalle: 'Retornado físicamente a Caja' });
                 setExpedientes(expedientes.map(e => e.id === expActualizado.id ? expActualizado : e));
                 setExpEncontrado(null);
+                await syncExpedienteCloud(expActualizado);
                 alert("✅ Expediente devuelto a Caja Central.");
             };
 
             // ==========================================
-            // REIMPRESIÓN MANUAL Y PROCESAMIENTO DE NOMBRES
+            // REIMPRESIÓN MANUAL DE TICKETS
             // ==========================================
             const [manualId, setManualId] = React.useState('');
             const [manualCliente, setManualCliente] = React.useState('');
 
             const agregarTicketManual = (e) => {
                 e.preventDefault();
-                if (!manualId || !manualCliente) return alert("Por favor completa el N° de Expediente y el Cliente.");
-                
+                if (!manualId || !manualCliente) return;
                 const idFormal = formatIdExpediente(manualId);
                 if (!idFormal) return alert("El N° de Expediente debe contener números.");
-                
                 setTicketsQueue([...ticketsQueue, { id: idFormal, cliente: manualCliente.toUpperCase() }]);
-                setManualId('');
-                setManualCliente('');
+                setManualId(''); setManualCliente('');
             };
 
-            const eliminarTicketIndividual = (index) => {
-                const nuevaCola = [...ticketsQueue];
-                nuevaCola.splice(index, 1);
-                setTicketsQueue(nuevaCola);
-            };
-
-            // Quiebre del nombre (2 palabras arriba, resto abajo)
             const parseTicketName = (fullName) => {
                 const words = fullName.trim().split(/\s+/);
-                if (words.length <= 2) {
-                    return { part1: fullName, part2: '' };
-                }
-                const part1 = `${words[0]} ${words[1]}`;
-                const part2 = words.slice(2).join(' ');
-                return { part1, part2 };
+                if (words.length <= 2) return { part1: fullName, part2: '' };
+                return { part1: `${words[0]} ${words[1]}`, part2: words.slice(2).join(' ') };
             };
 
-            // TAMAÑOS DE FUENTE EXTRAÍDOS DE TU CÓDIGO PERFECTO
             const getTicketNameStyle = (name) => {
                 const len = name.length;
                 if (len >= 35) return 'text-[12px] leading-[1.1]';
@@ -356,7 +386,6 @@
                 return 'text-[17px] leading-[1.1]'; 
             };
 
-            // PAGINACIÓN EXACTA A 6 FILAS (4x6 = 24 TICKETS POR HOJA)
             const processTicketsForPrint = () => {
                 const paddedQueue = [...ticketsQueue];
                 const rem = paddedQueue.length % 24;
@@ -364,18 +393,14 @@
                     const toAdd = paddedQueue.length === 0 ? 24 : 24 - rem;
                     for(let i=0; i < toAdd; i++) paddedQueue.push({ isEmpty: true });
                 }
-
                 const pages = [];
-                for (let i = 0; i < paddedQueue.length; i += 24) {
-                    pages.push(paddedQueue.slice(i, i + 24));
-                }
+                for (let i = 0; i < paddedQueue.length; i += 24) pages.push(paddedQueue.slice(i, i + 24));
                 return pages;
             };
-
             const printPages = processTicketsForPrint();
 
             // ==========================================
-            // DASHBOARD, FILTROS Y PDF REPORTING
+            // DASHBOARD Y FILTROS
             // ==========================================
             const [dashFilterAsesor, setDashFilterAsesor] = React.useState('TODOS');
             const [dashFiltroUbicacion, setDashFiltroUbicacion] = React.useState('TODOS');
@@ -390,71 +415,39 @@
                 const { jsPDF } = window.jspdf;
                 const doc = new jsPDF();
                 
-                doc.setFont("georgia", "bold");
-                doc.setTextColor(89, 180, 71); 
-                doc.setFontSize(22);
+                doc.setFont("georgia", "bold"); doc.setTextColor(89, 180, 71); doc.setFontSize(22);
                 doc.text("CREDIBAN", 14, 20);
-                
-                doc.setFont("helvetica", "normal");
-                doc.setTextColor(100, 100, 100);
-                doc.setFontSize(9);
+                doc.setFont("helvetica", "normal"); doc.setTextColor(100, 100, 100); doc.setFontSize(9);
                 doc.text(`Reporte Oficial de Expedientes Físicos - Generado: ${getFechaHora()}`, 14, 26);
                 
-                doc.setTextColor(40, 40, 40);
-                doc.setFontSize(12);
-                doc.setFont("helvetica", "bold");
-                let titulo = `Filtros Aplicados: `;
-                titulo += dashFilterAsesor !== 'TODOS' ? `Asesor: ${dashFilterAsesor} | ` : 'Toda la Agencia | ';
-                titulo += dashFiltroUbicacion !== 'TODOS' ? `Ubicación: ${dashFiltroUbicacion}` : 'Ubicación: General';
+                doc.setTextColor(40, 40, 40); doc.setFontSize(12); doc.setFont("helvetica", "bold");
+                let titulo = `Filtros: Asesor: ${dashFilterAsesor} | Ubicación: ${dashFiltroUbicacion}`;
                 doc.text(titulo, 14, 34);
 
                 if (tipoReporte === 'DETALLADO') {
                     const tableData = listaDash.map(e => [e.id, e.cliente, e.estadoCredito, e.asesorTitular, e.ubicacionFisica, e.fechaUltimoMov]);
                     doc.autoTable({
-                        startY: 40,
-                        head: [['N° EXP', 'CLIENTE', 'ESTADO', 'TITULAR', 'UBICACIÓN FÍSICA', 'FECHA MOV.']],
-                        body: tableData,
-                        theme: 'grid',
-                        styles: { fontSize: 8 },
-                        headStyles: { fillColor: [89, 180, 71] }
+                        startY: 40, head: [['N° EXP', 'CLIENTE', 'ESTADO', 'TITULAR', 'UBICACIÓN FÍSICA', 'FECHA MOV.']],
+                        body: tableData, theme: 'grid', styles: { fontSize: 8 }, headStyles: { fillColor: [89, 180, 71] }
                     });
                 } else { 
-                    let activos = listaDash.filter(e => e.estadoCredito === 'ACTIVO').length;
-                    let moraDura = listaDash.filter(e => e.estadoCredito === 'MORA DURA').length;
-                    let cancelados = listaDash.filter(e => e.estadoCredito === 'CANCELADO').length;
-                    let listaNegra = listaDash.filter(e => e.estadoCredito === 'LISTA NEGRA').length;
-                    
                     doc.autoTable({
-                        startY: 40,
-                        head: [['MÉTRICA ESTADÍSTICA', 'CANTIDAD EXACTA']],
+                        startY: 40, head: [['MÉTRICA ESTADÍSTICA', 'CANTIDAD EXACTA']],
                         body: [
                             ['Total de Expedientes en esta selección', listaDash.length],
                             ['Resguardados físicamente en Caja', listaDash.filter(e => e.ubicacionFisica.includes('CAJA')).length],
                             ['Prestados / En Campo (Fuera de Caja)', listaDash.filter(e => !e.ubicacionFisica.includes('CAJA')).length],
-                            ['Estado Crediticio: ACTIVO', activos],
-                            ['Estado Crediticio: MORA DURA', moraDura],
-                            ['Estado Crediticio: CANCELADO', cancelados],
-                            ['Estado Crediticio: LISTA NEGRA', listaNegra],
-                        ],
-                        theme: 'grid',
-                        styles: { fontSize: 10 },
-                        headStyles: { fillColor: [89, 180, 71] }
+                            ['Estado Crediticio: ACTIVO', listaDash.filter(e => e.estadoCredito === 'ACTIVO').length]
+                        ], theme: 'grid', styles: { fontSize: 10 }, headStyles: { fillColor: [89, 180, 71] }
                     });
                 }
                 doc.save(`Reporte_Crediban_${tipoReporte}_${Date.now()}.pdf`);
                 setModalReporte(false);
             };
 
-            // ==========================================
-            // COMPONENTES UI REUTILIZABLES
-            // ==========================================
+            // UI COMPONENTES REUTILIZABLES
             const BadgeEstado = ({estado}) => {
-                const colors = { 
-                    'ACTIVO': 'bg-green-100 text-green-700', 
-                    'MORA DURA': 'bg-red-100 text-red-700 font-bold',
-                    'CANCELADO': 'bg-blue-100 text-blue-700', 
-                    'LISTA NEGRA': 'bg-slate-800 text-white font-bold' 
-                };
+                const colors = { 'ACTIVO': 'bg-green-100 text-green-700', 'MORA DURA': 'bg-red-100 text-red-700 font-bold', 'CANCELADO': 'bg-blue-100 text-blue-700', 'LISTA NEGRA': 'bg-slate-800 text-white font-bold' };
                 return <span className={`px-2 py-1 rounded text-[10px] font-bold ${colors[estado] || 'bg-gray-100'}`}>{estado}</span>;
             };
 
@@ -480,26 +473,44 @@
             );
 
             // ==========================================
-            // PANTALLA DE AUTENTICACIÓN
+            // PANTALLA DE AUTENTICACIÓN (LOGIN)
             // ==========================================
             if (!isAuth) {
                 return (
-                    <div className="min-h-screen login-bg flex flex-col items-center justify-center p-6">
+                    <div className="min-h-screen login-bg flex flex-col items-center justify-center p-6 relative">
+                        {/* Overlay de carga */}
+                        {isLoading && (
+                            <div className="absolute inset-0 bg-slate-900/80 z-50 flex flex-col items-center justify-center backdrop-blur-sm">
+                                <i className="fa-solid fa-circle-notch fa-spin text-[#59B447] text-5xl mb-4"></i>
+                                <p className="text-white font-bold">{loadingMsg}</p>
+                            </div>
+                        )}
                         <div className="glass-card bg-white/5 p-10 rounded-3xl w-full max-w-md shadow-2xl border border-white/10 backdrop-blur-xl animate-fade-in text-center">
                             <div className="w-20 h-20 mx-auto mb-4">
                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 240"><g fill="#59B447"><rect x="90" y="8" width="24" height="13" rx="6.5"/><rect x="71" y="31" width="61" height="13" rx="6.5"/><rect x="50" y="55" width="74" height="13" rx="6.5"/><rect x="31" y="79" width="75" height="13" rx="6.5"/><rect x="24" y="103" width="63" height="13" rx="6.5"/><path d="M143 55 C141 78 130 95 111 107 C96 117 81 122 72 134 C62 147 63 166 70 181 C76 195 87 208 97 216 C107 201 118 189 131 177 C144 166 157 156 164 141 C173 123 173 104 168 89 C164 74 156 62 143 55 Z"/></g></svg>
                             </div>
                             <h1 className="text-[#59B447] font-bold text-3xl tracking-widest mb-1" style={{ fontFamily: "Georgia" }}>CREDIBAN</h1>
-                            <p className="text-slate-400 text-xs tracking-wider uppercase mb-8">Control Físico V18 Final</p>
-                            <form onSubmit={handleLogin} className="space-y-6">
+                            <p className="text-slate-400 text-xs tracking-wider uppercase mb-8">Control Físico - Nube (V18)</p>
+                            
+                            <form onSubmit={handleLogin} className="space-y-4">
+                                <div className="text-left">
+                                    <label className="block text-xs font-bold text-slate-400 uppercase mb-2 ml-1">Sede (Sucursal)</label>
+                                    <select required value={sedeActual} onChange={e=>setSedeActual(e.target.value)} className="w-full p-4 bg-slate-900/50 border border-slate-700/50 rounded-2xl focus:ring-2 focus:ring-[#59B447] outline-none text-white font-bold">
+                                        <option value="">-- Seleccionar Sede --</option>
+                                        <option value="HUACHO">HUACHO</option>
+                                        <option value="HUARAZ">HUARAZ</option>
+                                        <option value="ICA">ICA</option>
+                                        <option value="NUEVA SEDE">NUEVA SEDE</option>
+                                    </select>
+                                </div>
                                 <div className="text-left">
                                     <label className="block text-xs font-bold text-slate-400 uppercase mb-2 ml-1">Contraseña de Acceso</label>
                                     <div className="relative">
                                         <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-500"><i className="fa-solid fa-lock"></i></div>
-                                        <input type="password" required value={passwordInput} onChange={e=>setPasswordInput(e.target.value)} className="w-full pl-12 p-4 bg-slate-900/50 border border-slate-700/50 rounded-2xl focus:ring-2 focus:ring-[#59B447] outline-none transition-all shadow-inner text-white font-mono tracking-widest" placeholder="••••••••" />
+                                        <input type="password" required value={passwordInput} onChange={e=>setPasswordInput(e.target.value)} className="w-full pl-12 p-4 bg-slate-900/50 border border-slate-700/50 rounded-2xl focus:ring-2 focus:ring-[#59B447] outline-none text-white font-mono tracking-widest" placeholder="••••••••" />
                                     </div>
                                 </div>
-                                <button type="submit" className="w-full bg-gradient-to-r from-[#59B447] to-[#4a973a] text-white font-bold py-4 rounded-2xl shadow-lg shadow-green-900/50 hover:from-[#4a973a] transition-all">Ingresar al Sistema <i className="fa-solid fa-arrow-right-to-bracket ml-2"></i></button>
+                                <button type="submit" className="w-full bg-gradient-to-r from-[#59B447] to-[#4a973a] text-white font-bold py-4 rounded-2xl shadow-lg mt-4 hover:from-[#4a973a] transition-all">Ingresar al Sistema <i className="fa-solid fa-cloud text-xs ml-2"></i></button>
                             </form>
                         </div>
                     </div>
@@ -511,6 +522,16 @@
             // ==========================================
             return (
                 <div className="min-h-screen flex flex-col pb-10 relative">
+                    {/* Overlay de carga global (guardando) */}
+                    {isLoading && (
+                        <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center backdrop-blur-sm no-print">
+                            <div className="bg-white p-6 rounded-2xl shadow-2xl flex items-center gap-4">
+                                <i className="fa-solid fa-circle-notch fa-spin text-[#59B447] text-2xl"></i>
+                                <span className="font-bold text-slate-800">{loadingMsg}</span>
+                            </div>
+                        </div>
+                    )}
+
                     {historialVisible && <ModalHistorial exp={historialVisible} onClose={() => setHistorialVisible(null)} />}
                     <input type="file" accept=".csv" className="hidden no-print" ref={csvInputRef} onChange={importarCSV} />
 
@@ -520,8 +541,8 @@
                                 <i className="fa-solid fa-file-pdf text-5xl text-red-500 mb-4"></i>
                                 <h3 className="font-bold text-slate-800 text-lg mb-1">Generar Reporte PDF</h3>
                                 <p className="text-xs text-slate-500 mb-6">Elige el formato. El documento respetará los filtros activos en el Dashboard.</p>
-                                <button onClick={() => generarReportePDF('DETALLADO')} className="w-full bg-slate-800 text-white font-bold py-3 rounded-lg mb-2 shadow hover:bg-slate-700">Reporte Detallado (Lista Completa)</button>
-                                <button onClick={() => generarReportePDF('PRECISO')} className="w-full bg-[#59B447] text-white font-bold py-3 rounded-lg shadow hover:bg-green-600 mb-4">Reporte Preciso (Resumen y Totales)</button>
+                                <button onClick={() => generarReportePDF('DETALLADO')} className="w-full bg-slate-800 text-white font-bold py-3 rounded-lg mb-2 shadow hover:bg-slate-700">Reporte Detallado</button>
+                                <button onClick={() => generarReportePDF('PRECISO')} className="w-full bg-[#59B447] text-white font-bold py-3 rounded-lg shadow hover:bg-green-600 mb-4">Reporte Preciso (Totales)</button>
                                 <button onClick={() => setModalReporte(false)} className="text-xs text-slate-400 font-bold underline">Cancelar</button>
                             </div>
                         </div>
@@ -535,42 +556,40 @@
                                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 240"><g fill="#59B447"><rect x="90" y="8" width="24" height="13" rx="6.5"/><rect x="71" y="31" width="61" height="13" rx="6.5"/><rect x="50" y="55" width="74" height="13" rx="6.5"/><rect x="31" y="79" width="75" height="13" rx="6.5"/><rect x="24" y="103" width="63" height="13" rx="6.5"/><path d="M143 55 C141 78 130 95 111 107 C96 117 81 122 72 134 C62 147 63 166 70 181 C76 195 87 208 97 216 C107 201 118 189 131 177 C144 166 157 156 164 141 C173 123 173 104 168 89 C164 74 156 62 143 55 Z"/></g></svg>
                                     </div>
                                     <span className="text-[#59B447] font-bold text-xl tracking-widest" style={{ fontFamily: "Georgia" }}>CREDIBAN</span>
-                                    <span className="text-slate-400 text-sm ml-2 font-medium border-l pl-2 border-slate-300 hidden sm:block">Control Físico V18</span>
+                                    <span className="text-slate-400 text-sm ml-2 font-medium border-l pl-2 border-slate-300 hidden sm:block">Control Físico - Nube</span>
+                                    <span className="bg-blue-100 text-blue-800 text-[10px] font-bold px-2 py-1 rounded ml-2"><i className="fa-solid fa-cloud"></i> Sede: {sedeActual}</span>
                                 </div>
                                 <div className="flex gap-2 items-center">
-                                    <button onClick={exportarCSV} className="bg-slate-100 text-slate-600 px-3 py-1.5 rounded text-xs font-bold shadow-sm hover:bg-slate-200"><i className="fa-solid fa-download"></i> CSV + Historial</button>
-                                    <button onClick={() => {setIsAuth(false); setPasswordInput('');}} className="bg-red-50 text-red-600 px-3 py-1.5 rounded text-xs font-bold shadow-sm hover:bg-red-100"><i className="fa-solid fa-power-off"></i></button>
+                                    <button onClick={exportarCSV} className="bg-slate-100 text-slate-600 px-3 py-1.5 rounded text-xs font-bold shadow-sm hover:bg-slate-200"><i className="fa-solid fa-download"></i> CSV</button>
+                                    <button onClick={() => {setIsAuth(false); setExpedientes([]);}} className="bg-red-50 text-red-600 px-3 py-1.5 rounded text-xs font-bold shadow-sm hover:bg-red-100"><i className="fa-solid fa-power-off"></i></button>
                                 </div>
                             </div>
                             <div className="flex gap-4 text-xs font-semibold text-slate-500 overflow-x-auto">
                                 <button onClick={()=>setView('movimientos')} className={`pb-2 whitespace-nowrap ${view==='movimientos'?'tab-active':''}`}><i className="fa-solid fa-exchange-alt mr-1"></i> Prestar/Devolver</button>
-                                <button onClick={()=>setView('dashboard')} className={`pb-2 whitespace-nowrap ${view==='dashboard'?'tab-active':''}`}><i className="fa-solid fa-chart-pie mr-1"></i> Dashboard y Filtros</button>
+                                <button onClick={()=>setView('dashboard')} className={`pb-2 whitespace-nowrap ${view==='dashboard'?'tab-active':''}`}><i className="fa-solid fa-chart-pie mr-1"></i> Dashboard</button>
                                 <button onClick={()=>setView('inventario')} className={`pb-2 whitespace-nowrap ${view==='inventario'?'tab-active':''}`}><i className="fa-solid fa-database mr-1"></i> Base de Datos</button>
                                 <button onClick={()=>setView('tickets')} className={`pb-2 whitespace-nowrap ${view==='tickets'?'tab-active':''}`}><i className="fa-solid fa-tags mr-1"></i> Tickets Físicos</button>
-                                <button onClick={()=>setView('parametros')} className={`pb-2 whitespace-nowrap ${view==='parametros'?'tab-active':''}`}><i className="fa-solid fa-lock mr-1"></i> Parámetros</button>
+                                <button onClick={()=>setView('parametros')} className={`pb-2 whitespace-nowrap ${view==='parametros'?'tab-active':''}`}><i className="fa-solid fa-users-gear mr-1"></i> Asesores</button>
                             </div>
                         </div>
                     </header>
 
                     <main className="p-4 max-w-7xl mx-auto w-full flex-1 mt-4">
-                        
-                        {/* ========================================================= */}
                         {/* VISTA 1: MOVIMIENTOS */}
-                        {/* ========================================================= */}
                         {view === 'movimientos' && (
                             <div className="max-w-2xl mx-auto animate-fade-in no-print">
                                 <h2 className="text-xl font-bold text-slate-800 mb-4">Registro Rápido de Salidas/Entradas</h2>
                                 <div className="glass-card p-6 rounded-2xl mb-6 border-l-4 border-blue-500 relative z-20">
-                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Buscar Cliente (Nombre, DNI o N° Exp)</label>
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Buscar Cliente (Nombre o N° Exp)</label>
                                     <div className="relative">
                                         <div className="flex gap-2">
-                                            <input type="text" value={movBusqueda} onChange={handleLiveSearch} className="flex-1 p-3 border border-blue-200 rounded-xl outline-none font-bold bg-white text-blue-900 shadow-inner focus:ring-2 focus:ring-blue-400" placeholder="Ej: CARLOS, 72458963 o 45..." />
+                                            <input type="text" value={movBusqueda} onChange={handleLiveSearch} className="flex-1 p-3 border border-blue-200 rounded-xl outline-none font-bold bg-white text-blue-900 shadow-inner focus:ring-2 focus:ring-blue-400" placeholder="Ej: CARLOS o 45..." />
                                         </div>
                                         {sugerencias.length > 0 && (
                                             <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-slate-200 rounded-xl shadow-2xl overflow-hidden z-30">
                                                 {sugerencias.map(s => (
                                                     <div key={s.id} onClick={() => seleccionarExpediente(s)} className="p-3 border-b border-slate-50 hover:bg-blue-50 cursor-pointer flex justify-between items-center transition-colors">
-                                                        <div><p className="font-bold text-sm text-slate-800">{s.cliente}</p><p className="text-[10px] text-slate-500">DNI: {s.dni} | EXP: <span className="text-blue-600 font-bold">{s.id}</span></p></div>
+                                                        <div><p className="font-bold text-sm text-slate-800">{s.cliente}</p><p className="text-[10px] text-slate-500">EXP: <span className="text-blue-600 font-bold">{s.id}</span></p></div>
                                                         <i className="fa-solid fa-chevron-right text-slate-300"></i>
                                                     </div>
                                                 ))}
@@ -620,13 +639,11 @@
                             </div>
                         )}
 
-                        {/* ========================================================= */}
                         {/* VISTA 2: DASHBOARD */}
-                        {/* ========================================================= */}
                         {view === 'dashboard' && (
                             <div className="animate-fade-in space-y-6 no-print">
                                 <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                                    <h2 className="text-lg font-bold text-slate-800 hidden md:block">Tablero de Gestión Analítica</h2>
+                                    <h2 className="text-lg font-bold text-slate-800 hidden md:block">Tablero Analítico ({sedeActual})</h2>
                                     <div className="flex flex-wrap gap-2 w-full xl:w-auto">
                                         <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-lg border border-slate-200 flex-1 min-w-[140px]">
                                             <i className="fa-solid fa-user-tie text-slate-400"></i>
@@ -643,15 +660,13 @@
                                                 <option value="CAMPO">EN CAMPO (PRESTADOS)</option>
                                             </select>
                                         </div>
-                                        <button onClick={() => setModalReporte(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold text-xs shadow-md hover:bg-blue-700 flex-1 md:flex-none flex items-center justify-center gap-2">
-                                            <i className="fa-solid fa-print"></i> PDF
-                                        </button>
+                                        <button onClick={() => setModalReporte(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold text-xs shadow-md hover:bg-blue-700 flex-1 md:flex-none flex items-center justify-center gap-2"><i className="fa-solid fa-print"></i> PDF</button>
                                     </div>
                                 </div>
                                 
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                     <div className="bg-white p-5 rounded-2xl shadow-sm border-l-4 border-blue-500">
-                                        <p className="text-xs text-slate-500 font-bold uppercase">Total Expedientes (Filtro Actual)</p>
+                                        <p className="text-xs text-slate-500 font-bold uppercase">Total Expedientes</p>
                                         <p className="text-3xl font-bold text-slate-800">{listaDash.length}</p>
                                     </div>
                                     <div className="bg-white p-5 rounded-2xl shadow-sm border-l-4 border-[#59B447]">
@@ -669,20 +684,12 @@
                                     <div className="overflow-x-auto border border-slate-200 rounded-xl max-h-[500px]">
                                         <table className="w-full text-sm text-left whitespace-nowrap">
                                             <thead className="bg-slate-50 text-slate-600 text-[10px] uppercase font-bold sticky top-0 shadow-sm">
-                                                <tr>
-                                                    <th className="p-3">Expediente y Cliente</th>
-                                                    <th className="p-3">Estado y Titular</th>
-                                                    <th className="p-3">Ubicación Física</th>
-                                                    <th className="p-3">Último Movimiento</th>
-                                                </tr>
+                                                <tr><th className="p-3">Expediente y Cliente</th><th className="p-3">Estado y Titular</th><th className="p-3">Ubicación Física</th><th className="p-3">Último Movimiento</th></tr>
                                             </thead>
                                             <tbody>
                                                 {listaDash.map(e => (
                                                     <tr key={e.id} className="border-b hover:bg-slate-50">
-                                                        <td className="p-3">
-                                                            <p className="font-bold text-slate-700">{e.cliente}</p>
-                                                            <p className="text-[10px] text-slate-500 font-bold">ID: <span className="text-blue-600">{e.id}</span> | DNI: {e.dni}</p>
-                                                        </td>
+                                                        <td className="p-3"><p className="font-bold text-slate-700">{e.cliente}</p><p className="text-[10px] text-slate-500 font-bold">ID: <span className="text-blue-600">{e.id}</span> | DNI: {e.dni}</p></td>
                                                         <td className="p-3"><BadgeEstado estado={e.estadoCredito} /><p className="text-[10px] font-semibold mt-1 text-slate-500">Dueño: {e.asesorTitular}</p></td>
                                                         <td className="p-3 font-bold"><span className={e.ubicacionFisica.includes('CAJA') ? 'text-green-600' : 'text-red-500'}>{e.ubicacionFisica}</span></td>
                                                         <td className="p-3 text-xs text-slate-500">{e.fechaUltimoMov}</td>
@@ -696,69 +703,54 @@
                             </div>
                         )}
 
-                        {/* ========================================================= */}
-                        {/* VISTA 3: BASE EXPEDIENTES Y MIGRACIÓN */}
-                        {/* ========================================================= */}
+                        {/* VISTA 3: BASE EXPEDIENTES */}
                         {view === 'inventario' && (
                             <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 animate-fade-in no-print">
                                 <div className="xl:col-span-1 space-y-6">
                                     <div className="glass-card p-5 rounded-2xl h-fit border-t-4 border-[#59B447]">
                                         <h3 className="font-bold text-slate-800 mb-4 border-b pb-2">Registrar Uno por Uno</h3>
                                         <form onSubmit={registrarExpediente} className="space-y-3">
-                                            <div>
-                                                <label className="text-[10px] font-bold text-slate-500 uppercase">N° Expediente</label>
-                                                <input type="text" required value={formInv.idExp} onChange={e=>setFormInv({...formInv, idExp: e.target.value.replace(/\D/g, '')})} placeholder="Ej. 1" className="w-full p-2 border rounded bg-white text-sm font-bold shadow-inner focus:ring-2 focus:ring-[#59B447] outline-none" />
-                                                <p className="text-[9px] text-slate-400 font-semibold mt-1 text-right italic">Se guardará como: <span className="text-blue-500">{formatIdExpediente(formInv.idExp) || "001-0000X"}</span></p>
-                                            </div>
-                                            <div>
-                                                <label className="text-[10px] font-bold text-slate-500 uppercase">DNI</label>
-                                                <input type="text" required maxLength="8" value={formInv.dni} onChange={e=>setFormInv({...formInv, dni: e.target.value.replace(/\D/g,'')})} className="w-full p-2 border rounded bg-white text-sm" />
-                                            </div>
-                                            <div>
-                                                <label className="text-[10px] font-bold text-slate-500 uppercase">Cliente</label>
-                                                <input type="text" required value={formInv.cliente} onChange={e=>setFormInv({...formInv, cliente: e.target.value})} className="w-full p-2 border rounded bg-white text-sm uppercase" />
-                                            </div>
+                                            <div><label className="text-[10px] font-bold text-slate-500 uppercase">N° Expediente</label><input type="text" required value={formInv.idExp} onChange={e=>setFormInv({...formInv, idExp: e.target.value.replace(/\D/g, '')})} placeholder="Ej. 1" className="w-full p-2 border rounded bg-white text-sm font-bold shadow-inner focus:ring-2 focus:ring-[#59B447] outline-none" /></div>
+                                            <div><label className="text-[10px] font-bold text-slate-500 uppercase">Cliente</label><input type="text" required value={formInv.cliente} onChange={e=>setFormInv({...formInv, cliente: e.target.value})} className="w-full p-2 border rounded bg-white text-sm uppercase" /></div>
                                             <div>
                                                 <label className="text-[10px] font-bold text-slate-500 uppercase">Estado Crediticio</label>
                                                 <select value={formInv.estadoCredito} onChange={e=>setFormInv({...formInv, estadoCredito: e.target.value})} className="w-full p-2 border rounded bg-white text-sm font-semibold text-slate-700">
-                                                    <option value="ACTIVO">ACTIVO</option>
-                                                    <option value="MORA DURA">MORA DURA</option>
-                                                    <option value="CANCELADO">CANCELADO</option>
-                                                    <option value="LISTA NEGRA">LISTA NEGRA</option>
+                                                    <option value="ACTIVO">ACTIVO</option><option value="MORA DURA">MORA DURA</option><option value="CANCELADO">CANCELADO</option><option value="LISTA NEGRA">LISTA NEGRA</option>
                                                 </select>
                                             </div>
                                             <div>
                                                 <label className="text-[10px] font-bold text-slate-500 uppercase">Asesor Titular</label>
                                                 <select value={formInv.asesorTitular} onChange={e=>setFormInv({...formInv, asesorTitular: e.target.value})} className="w-full p-2 border rounded bg-white text-sm">
-                                                    <option value="">Selecciona...</option>
-                                                    {asesores.map(a => <option key={a} value={a}>{a}</option>)}
+                                                    <option value="">Selecciona...</option>{asesores.map(a => <option key={a} value={a}>{a}</option>)}
                                                 </select>
                                             </div>
                                             <div className="flex items-center gap-2 mt-4 bg-slate-50 p-2 rounded border border-slate-200">
                                                 <input type="checkbox" id="chkTicket" checked={formInv.generarTicket} onChange={e => setFormInv({...formInv, generarTicket: e.target.checked})} className="w-4 h-4 text-[#59B447] focus:ring-[#59B447]" />
                                                 <label htmlFor="chkTicket" className="text-[10px] font-bold text-slate-600 cursor-pointer">Generar Ticket para imprimir</label>
                                             </div>
-                                            <button type="submit" className="w-full bg-[#59B447] text-white py-2 rounded font-bold shadow hover:bg-green-600 mt-2">Crear y Archivar en Caja</button>
+                                            <button type="submit" className="w-full bg-[#59B447] text-white py-2 rounded font-bold shadow hover:bg-green-600 mt-2">Crear y Subir a Nube</button>
                                         </form>
                                     </div>
-
                                     <div className="bg-orange-50 border border-orange-200 p-5 rounded-2xl shadow-sm">
-                                        <h3 className="font-bold text-orange-800 mb-2"><i className="fa-solid fa-database"></i> Migración Masiva CSV</h3>
-                                        <p className="text-[10px] text-orange-700 mb-3">Sube tu Excel guardado como CSV. El sistema detectará automáticamente si el archivo tiene historial previo guardado.</p>
+                                        <h3 className="font-bold text-orange-800 mb-2"><i className="fa-solid fa-cloud-arrow-up"></i> Carga Masiva (CSV)</h3>
+                                        <p className="text-[10px] text-orange-700 mb-3">Sube el CSV y el sistema empujará todos los nuevos registros a tu Google Sheets de la sede actual.</p>
                                         <div className="bg-white p-3 rounded-lg border border-orange-200 mb-4 text-left shadow-inner">
-                                            <p className="text-[9px] font-bold text-slate-600 border-b pb-1 mb-2">ORDEN ESTRICTO DE COLUMNAS:</p>
-                                            <p className="text-[9px] text-slate-500 font-mono mb-1 truncate">1, 71234567, LUIS M., ACTIVO, JOSE P.</p>
+                                            <p className="text-[9px] font-bold text-slate-600 border-b pb-1 mb-2">FORMATO EXCEL (CSV) - ORDEN ESTRICTO:</p>
+                                            <ol className="text-[9px] text-slate-500 font-mono pl-3 list-decimal mb-2 space-y-1">
+                                                <li>ID_Expediente (Ej. 124)</li>
+                                                <li>DNI (Pon 0 o CONFIDENCIAL)</li>
+                                                <li>Cliente (Ej. JUAN PEREZ)</li>
+                                                <li>Estado (Ej. ACTIVO)</li>
+                                                <li>Titular (Ej. MARIA G.)</li>
+                                                <li>Ubicación (Ej. CAJA)</li>
+                                            </ol>
+                                            <p className="text-[9px] text-orange-600 font-bold border-t pt-1 mt-1">Guarda tu Excel como "CSV (delimitado por comas)"</p>
                                         </div>
-                                        <button onClick={() => csvInputRef.current.click()} className="w-full bg-orange-500 text-white py-2 rounded font-bold shadow hover:bg-orange-600 text-xs">
-                                            <i className="fa-solid fa-upload"></i> Importar CSV Inicial
-                                        </button>
+                                        <button onClick={() => csvInputRef.current.click()} className="w-full bg-orange-500 text-white py-2 rounded font-bold shadow hover:bg-orange-600 text-xs">Importar e Integrar</button>
                                     </div>
                                 </div>
-
                                 <div className="xl:col-span-3 glass-card p-6 rounded-2xl h-[800px] flex flex-col">
-                                    <div className="flex justify-between items-center mb-4 border-b pb-2">
-                                        <h3 className="font-bold text-slate-800">Inventario General ({expedientes.length})</h3>
-                                    </div>
+                                    <div className="flex justify-between items-center mb-4 border-b pb-2"><h3 className="font-bold text-slate-800">Base Sincronizada ({expedientes.length})</h3></div>
                                     <div className="overflow-x-auto overflow-y-auto flex-1 border border-slate-200 rounded-xl">
                                         <table className="w-full text-sm text-left">
                                             <thead className="bg-slate-100 text-slate-600 text-[10px] uppercase font-bold sticky top-0 z-10 shadow-sm">
@@ -769,26 +761,18 @@
                                                     const isEditing = editMode && editMode.id === e.id;
                                                     return (
                                                     <tr key={e.id} className="border-b hover:bg-slate-50">
-                                                        <td className="p-3">
-                                                            <p className="font-bold text-slate-700 text-xs">{e.cliente}</p>
-                                                            <p className="text-[10px] text-slate-500 font-bold mt-1">Exp: <span className="text-blue-600">{e.id}</span> | DNI: {e.dni}</p>
-                                                        </td>
+                                                        <td className="p-3"><p className="font-bold text-slate-700 text-xs">{e.cliente}</p><p className="text-[10px] text-slate-500 font-bold mt-1">Exp: <span className="text-blue-600">{e.id}</span> | DNI: {e.dni}</p></td>
                                                         <td className="p-3">
                                                             {isEditing ? (
                                                                 <div className="space-y-1">
                                                                     <select value={editMode.nuevoEstado} onChange={(evt)=> setEditMode({...editMode, nuevoEstado: evt.target.value})} className="text-[10px] border p-1 rounded w-full font-bold">
-                                                                        <option value="ACTIVO">ACTIVO</option>
-                                                                        <option value="MORA DURA">MORA DURA</option>
-                                                                        <option value="CANCELADO">CANCELADO</option>
-                                                                        <option value="LISTA NEGRA">LISTA NEGRA</option>
+                                                                        <option value="ACTIVO">ACTIVO</option><option value="MORA DURA">MORA DURA</option><option value="CANCELADO">CANCELADO</option><option value="LISTA NEGRA">LISTA NEGRA</option>
                                                                     </select>
                                                                     <select value={editMode.nuevoAsesor} onChange={(evt)=> setEditMode({...editMode, nuevoAsesor: evt.target.value})} className="text-[10px] border p-1 rounded w-full">
                                                                         {asesores.map(a => <option key={a} value={a}>{a}</option>)}
                                                                     </select>
                                                                 </div>
-                                                            ) : (
-                                                                <><BadgeEstado estado={e.estadoCredito} /><p className="text-[10px] font-semibold mt-1">Asesor: {e.asesorTitular}</p></>
-                                                            )}
+                                                            ) : ( <><BadgeEstado estado={e.estadoCredito} /><p className="text-[10px] font-semibold mt-1">Asesor: {e.asesorTitular}</p></> )}
                                                         </td>
                                                         <td className="p-3"><p className={`text-[10px] font-bold ${e.ubicacionFisica.includes('CAJA') ? 'text-green-600' : 'text-red-500'}`}>{e.ubicacionFisica}</p><p className="text-[9px] text-slate-400 mt-1">{e.fechaUltimoMov}</p></td>
                                                         <td className="p-3">
@@ -800,7 +784,7 @@
                                                         </td>
                                                     </tr>
                                                 )})}
-                                                {expedientes.length === 0 && <tr><td colSpan="4" className="text-center p-8 text-slate-400">Sin datos. Inicia la migración masiva.</td></tr>}
+                                                {expedientes.length === 0 && <tr><td colSpan="4" className="text-center p-8 text-slate-400">Sin datos.</td></tr>}
                                             </tbody>
                                         </table>
                                     </div>
@@ -808,88 +792,43 @@
                             </div>
                         )}
 
-                        {/* ========================================================= */}
-                        {/* VISTA NUEVA: TICKETS DE IMPRESIÓN (DISEÑO BASE RESTAURADO Y SIN PUNTOS) */}
-                        {/* ========================================================= */}
+                        {/* VISTA 4: TICKETS FÍSICOS */}
                         {view === 'tickets' && (
                             <div className="animate-fade-in">
                                 <div className="no-print bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-4">
                                     <h3 className="font-bold text-slate-800 mb-3"><i className="fa-solid fa-keyboard text-blue-500"></i> Generar Ticket Manual (Reimpresión)</h3>
-                                    <p className="text-[10px] text-slate-500 mb-3">Añade tickets a la cola de impresión sin duplicarlos en la base general.</p>
                                     <form onSubmit={agregarTicketManual} className="flex flex-col md:flex-row gap-3">
-                                        <div className="flex-1">
-                                            <input type="text" placeholder="N° Expediente (Ej. 124)" value={manualId} onChange={e=>setManualId(e.target.value.replace(/\D/g, ''))} className="w-full p-2.5 border rounded-lg text-sm font-bold outline-none focus:ring-2 focus:ring-[#59B447]" required />
-                                        </div>
-                                        <div className="flex-1">
-                                            <input type="text" placeholder="Nombre Completo del Cliente" value={manualCliente} onChange={e=>setManualCliente(e.target.value.toUpperCase())} className="w-full p-2.5 border rounded-lg text-sm font-bold outline-none focus:ring-2 focus:ring-[#59B447]" required />
-                                        </div>
+                                        <div className="flex-1"><input type="text" placeholder="N° Expediente (Ej. 124)" value={manualId} onChange={e=>setManualId(e.target.value.replace(/\D/g, ''))} className="w-full p-2.5 border rounded-lg text-sm font-bold outline-none focus:ring-2 focus:ring-[#59B447]" required /></div>
+                                        <div className="flex-1"><input type="text" placeholder="Nombre Completo del Cliente" value={manualCliente} onChange={e=>setManualCliente(e.target.value.toUpperCase())} className="w-full p-2.5 border rounded-lg text-sm font-bold outline-none focus:ring-2 focus:ring-[#59B447]" required /></div>
                                         <button type="submit" className="bg-[#59B447] text-white px-5 py-2.5 rounded-lg font-bold shadow hover:bg-green-600 transition-colors whitespace-nowrap"><i className="fa-solid fa-plus"></i> Añadir a Cola</button>
                                     </form>
                                 </div>
-
                                 <div className="no-print mb-4 flex flex-col md:flex-row justify-between items-start md:items-center bg-white p-4 rounded-xl shadow-sm border border-slate-200 gap-4">
-                                    <div>
-                                        <h2 className="text-xl font-bold text-slate-800"><i className="fa-solid fa-print text-[#59B447]"></i> Vista Previa de Impresión (Formato 4x6 A4)</h2>
-                                        <p className="text-sm text-slate-500">Etiquetas en cola: <span className="font-bold text-blue-600">{ticketsQueue.length}</span> (Capacidad por hoja A4: 24)</p>
-                                    </div>
+                                    <div><h2 className="text-xl font-bold text-slate-800"><i className="fa-solid fa-print text-[#59B447]"></i> Vista Previa (A4 - 4x6)</h2><p className="text-sm text-slate-500">Etiquetas en cola: <span className="font-bold text-blue-600">{ticketsQueue.length}</span></p></div>
                                     <div className="flex gap-2 w-full md:w-auto">
                                         <button onClick={() => { if(confirm("¿Vaciar todas las etiquetas en cola?")) setTicketsQueue([]); }} className="bg-red-50 text-red-600 px-4 py-2.5 rounded-lg font-bold hover:bg-red-100 flex-1 sm:flex-none text-sm">Vaciar Todo</button>
                                         <button onClick={() => window.print()} className="bg-slate-800 text-white px-6 py-2.5 rounded-lg font-bold shadow-md hover:bg-slate-700 flex-1 sm:flex-none text-sm">Imprimir A4 Ahora</button>
                                     </div>
                                 </div>
-
-                                <div className="no-print bg-yellow-50 border border-yellow-200 p-3 rounded-lg text-xs text-yellow-800 mb-6">
-                                    <i className="fa-solid fa-lightbulb"></i> <b>Tip contra bordes invisibles:</b> Asegúrate de que los "Márgenes" de tu impresora estén en "Ninguno" y activar "Imprimir gráficos de fondo". Todo está calculado para encajar perfectamente en 6 filas.
-                                </div>
-
-                                {/* ÁREA DE IMPRESIÓN A4 REAL - 4 COLUMNAS X 6 FILAS (Paginación Automática) */}
                                 <div className="print-container w-full flex flex-col items-center">
                                     {printPages.map((page, pageIdx) => (
                                         <div key={pageIdx} className="print-area bg-white mx-auto w-full mb-8" style={{ pageBreakAfter: pageIdx === printPages.length - 1 ? 'auto' : 'always' }}>
                                             <div className="grid grid-cols-4 w-full border-t-2 border-l-2 border-black">
-                                                
                                                 {page.map((t, idx) => {
-                                                    // Relleno de espacios vacíos
-                                                    if (t.isEmpty) {
-                                                        return (
-                                                            <div key={`empty-${idx}`} className="ticket-cell flex flex-col border-r-2 border-b-2 border-black bg-white box-border" style={{ height: '40mm' }}>
-                                                                <div className="w-full bg-white border-b-2 border-black shrink-0" style={{ height: '4.5mm' }}></div>
-                                                                <div className="flex-1 w-full bg-transparent"></div>
-                                                                <div className="w-full bg-slate-50/30 border-t-2 border-black shrink-0" style={{ height: '14.5mm' }}></div>
-                                                            </div>
-                                                        );
-                                                    }
-                                                    
-                                                    // Ticket Real (RESTAURADO CON LAS MEDIDAS PERFECTAS DE LA V16 Y SIN "...")
+                                                    if (t.isEmpty) return ( <div key={`empty-${idx}`} className="ticket-cell flex flex-col border-r-2 border-b-2 border-black bg-white box-border" style={{ height: '40mm' }}><div className="w-full bg-white border-b-2 border-black shrink-0" style={{ height: '4.5mm' }}></div><div className="flex-1 w-full bg-transparent"></div><div className="w-full bg-slate-50/30 border-t-2 border-black shrink-0" style={{ height: '14.5mm' }}></div></div> );
                                                     const nombres = parseTicketName(t.cliente);
                                                     return (
                                                     <div key={idx} className="ticket-cell flex flex-col border-r-2 border-b-2 border-black bg-white box-border overflow-hidden justify-between" style={{ height: '40mm' }}>
-                                                        
-                                                        {/* Celda 1: Espacio blanco superior (soporte) con su respectiva línea inferior */}
                                                         <div className="w-full bg-white border-b-2 border-black shrink-0" style={{ height: '4.5mm' }}></div>
-                                                        
-                                                        {/* Celda 2: Nombre Completo (Escalado de tu código perfecto y sin "truncate") */}
                                                         <div className="flex-1 w-full flex flex-col items-center justify-center p-1 overflow-hidden">
-                                                            <span className={`font-black text-black uppercase text-center w-full leading-[1.1] break-words whitespace-normal ${getTicketNameStyle(t.cliente)}`} style={{ fontFamily: 'Arial, sans-serif' }}>
-                                                                {nombres.part1}
-                                                            </span>
-                                                            {nombres.part2 && (
-                                                                <span className={`font-extrabold text-black uppercase text-center w-full leading-[1.1] break-words whitespace-normal ${getTicketNameStyle(t.cliente)}`} style={{ fontFamily: 'Arial, sans-serif' }}>
-                                                                    {nombres.part2}
-                                                                </span>
-                                                            )}
+                                                            <span className={`font-black text-black uppercase text-center w-full leading-[1.1] break-words whitespace-normal ${getTicketNameStyle(t.cliente)}`} style={{ fontFamily: 'Arial, sans-serif' }}>{nombres.part1}</span>
+                                                            {nombres.part2 && ( <span className={`font-extrabold text-black uppercase text-center w-full leading-[1.1] break-words whitespace-normal ${getTicketNameStyle(t.cliente)}`} style={{ fontFamily: 'Arial, sans-serif' }}>{nombres.part2}</span> )}
                                                         </div>
-                                                        
-                                                        {/* Celda 3: N° Expediente en Rojo Gigante con su respectiva línea superior */}
                                                         <div className="w-full flex items-center justify-center bg-white border-t-2 border-black pb-1 shrink-0" style={{ height: '14.5mm' }}>
-                                                            <span className="font-black text-[28px] text-red-600 tracking-tighter font-sans" style={{ lineHeight: '1', textShadow: '0px 0px 0px #dc2626' }}>
-                                                                {t.id}
-                                                            </span>
+                                                            <span className="font-black text-[28px] text-red-600 tracking-tighter font-sans" style={{ lineHeight: '1', textShadow: '0px 0px 0px #dc2626' }}>{t.id}</span>
                                                         </div>
-                                                        
                                                     </div>
                                                 )})}
-
                                             </div>
                                         </div>
                                     ))}
@@ -897,16 +836,14 @@
                             </div>
                         )}
 
-                        {/* ========================================================= */}
-                        {/* VISTA 5: PARÁMETROS PROTEGIDOS */}
-                        {/* ========================================================= */}
+                        {/* VISTA 5: PARÁMETROS */}
                         {view === 'parametros' && (
                             <div className="animate-fade-in max-w-4xl mx-auto no-print">
                                 {!isParamAuth ? (
                                     <div className="glass-card p-10 rounded-2xl max-w-md mx-auto text-center shadow-xl border-t-4 border-[#59B447] mt-10">
                                         <i className="fa-solid fa-shield-halved text-5xl text-slate-300 mb-4"></i>
                                         <h2 className="text-xl font-bold text-slate-800 mb-2">Zona Protegida</h2>
-                                        <p className="text-xs text-slate-500 mb-6">Ingresa la clave maestra para administrar asesores y base de datos.</p>
+                                        <p className="text-xs text-slate-500 mb-6">Ingresa la clave maestra para administrar asesores en {sedeActual}.</p>
                                         <input type="password" value={paramPass} onChange={e=>setParamPass(e.target.value)} onKeyDown={e => e.key === 'Enter' && checkParamAuth()} placeholder="Contraseña..." className="w-full p-3 border border-slate-300 rounded-xl mb-4 text-center font-bold tracking-widest outline-none focus:ring-2 focus:ring-[#59B447]" />
                                         <button onClick={checkParamAuth} className="bg-[#59B447] text-white font-bold py-3 px-6 rounded-xl w-full shadow-md hover:bg-green-600 transition-colors">Desbloquear Parámetros</button>
                                     </div>
@@ -927,21 +864,10 @@
                                                 ))}
                                             </div>
                                         </div>
-
-                                        <div className="glass-card p-6 rounded-2xl border-t-4 border-red-500 flex flex-col justify-between">
-                                            <div>
-                                                <h2 className="text-xl font-bold text-slate-800 mb-2"><i className="fa-solid fa-triangle-exclamation text-red-500"></i> Zona de Peligro</h2>
-                                                <p className="text-sm text-slate-500 mb-4">Esta acción eliminará de forma irreversible toda la base de datos de expedientes y tickets en cola.</p>
-                                            </div>
-                                            <button onClick={borrarTodaLaBase} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-lg shadow-lg flex items-center justify-center gap-2 mt-4">
-                                                <i className="fa-solid fa-skull"></i> Borrar Toda la Base de Datos
-                                            </button>
-                                        </div>
                                     </div>
                                 )}
                             </div>
                         )}
-
                     </main>
                 </div>
             );
